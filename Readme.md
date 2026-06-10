@@ -1,6 +1,6 @@
 # Human Voice
 
-An open source real-time AI voice conversation system, built to feel as close to a human call as possible.
+A real-time AI voice conversation system, built to feel as close to a human call as possible.
 
 ![alt text](assets/image.png)
 
