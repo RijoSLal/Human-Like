@@ -1,13 +1,13 @@
 #------------------- doc --------------------
 
-# # 🇺🇸 'a' => American English, 🇬🇧 'b' => British English
-# # 🇪🇸 'e' => Spanish es
-# # 🇫🇷 'f' => French fr-fr
-# # 🇮🇳 'h' => Hindi hi
-# # 🇮🇹 'i' => Italian it
-# # 🇯🇵 'j' => Japanese: pip install misaki[ja]
-# # 🇧🇷 'p' => Brazilian Portuguese pt-br
-# # 🇨🇳 'z' => Mandarin Chinese: pip install misaki[zh]
+# # 🇺🇸 'a' => american english, 🇬🇧 'b' => british english
+# # 🇪🇸 'e' => spanish es
+# # 🇫🇷 'f' => french fr-fr
+# # 🇮🇳 'h' => hindi hi
+# # 🇮🇹 'i' => italian it
+# # 🇯🇵 'j' => japanese: pip install misaki[ja]
+# # 🇧🇷 'p' => brazilian portuguese pt-br
+# # 🇨🇳 'z' => mandarin chinese: pip install misaki[zh]
 
 #---------------------------------------------
 
@@ -18,8 +18,9 @@ import sounddevice as sd
 from collections import deque
 import os
 import orjson
+from typing import Any, Optional
 
-# Try to import onnxruntime, fallback to torch if not available or requested
+# try to import onnxruntime, fallback to torch if not available or requested
 try:
     import onnxruntime as ort
 except ImportError:
@@ -30,16 +31,34 @@ from kokoro import KPipeline, KModel
 from huggingface_hub import hf_hub_download
 
 class KokoroStreamer:
+    """
+    streams audio from kokoro tts model.
+    """
     def __init__(
         self,
-        interrupted,
+        interrupted: threading.Event,
         lang_code: str = 'a',
         voice: str = 'af_bella',
         speed: float = 1.15,
         chunk_size: int = 10,
-        aec_ref=None,            # AECReferenceBuffer | None
-        use_onnx: bool = True    # Default to ONNX for speed
-    ):  
+        aec_ref: Optional[Any] = None, # AECReferenceBuffer | None
+        use_onnx: bool = True          # default to onnx for speed
+    ) -> None:  
+        """
+        initialize the kokoro streamer
+
+        args:
+            interrupted (threading.Event): event to signal interruption
+            lang_code (str): language code for tts
+            voice (str): voice name to use
+            speed (float): playback speed
+            chunk_size (int): number of words to buffer before synthesis
+            aec_ref (Optional[Any]): optional aec reference buffer
+            use_onnx (bool): whether to use onnx for inference
+
+        returns:
+            None
+        """
         self.use_onnx = use_onnx and (ort is not None)
         self.repo_id = 'hexgrad/Kokoro-82M'
         self.lang_code = lang_code
@@ -59,12 +78,12 @@ class KokoroStreamer:
             else:
                 try:
                     self.ort_session = ort.InferenceSession(model_path)
-                    # Load vocab for ONNX
+                    # load vocab for onnx
                     config_path = hf_hub_download(repo_id=self.repo_id, filename='config.json')
                     with open(config_path, 'rb') as f:
                         config = orjson.loads(f.read())
                     self.vocab = config['vocab']
-                    # Initialize pipeline without the heavy PyTorch model
+                    # initialize pipeline without the heavy pytorch model
                     self.pipeline = KPipeline(lang_code=lang_code, repo_id=self.repo_id, model=False, trf=True)
                 except Exception as e:
                     print(f"Error initializing ONNX: {e}. Falling back to PyTorch.")
@@ -91,7 +110,19 @@ class KokoroStreamer:
             self.stream = None
 
 
-    def _audio_callback(self, outdata, frames, time, status):
+    def _audio_callback(self, outdata: np.ndarray, frames: int, time: Any, status: Any) -> None:
+        """
+        callback for the audio output stream
+
+        args:
+            outdata (np.ndarray): buffer to fill with audio data
+            frames (int): number of frames to provide
+            time (Any): time information
+            status (Any): status flags
+
+        returns:
+            None
+        """
         if self.interrupted and self.interrupted.is_set():
             with self._audio_lock:
                 self._audio.clear()
@@ -123,52 +154,71 @@ class KokoroStreamer:
         if self._aec_ref is not None:
             self._aec_ref.write(out.copy())
 
-    def _synthesize_text(self, text: str):
+    def _synthesize_text(self, text: str) -> None:
+        """
+        synthesize text into audio using the kokoro model
+
+        args:
+            text (str): text to synthesize
+
+        returns:
+            None
+        """
         text = text.strip()
         if not text:
             return
         
         if self.use_onnx:
-            # Use ONNX inference
+            # use onnx inference
             for _, ps, _ in self.pipeline(text, voice=self.voice, speed=self.speed):
                 if not ps:
                     continue
                 
-                # Convert phonemes to input_ids
+                # convert phonemes to input_ids
                 input_ids = [0] + [self.vocab[p] for p in ps if p in self.vocab] + [0]
                 if len(input_ids) > 512:
                     input_ids = input_ids[:511] + [0]
                 
-                # Load voice pack (style embedding)
+                # load voice pack (style embedding)
                 pack = self.pipeline.load_voice(self.voice)
-                # Style index matches len(ps) - 1 in Kokoro
+                # style index matches len(ps) - 1 in kokoro
                 style_idx = min(len(ps) - 1, pack.shape[0] - 1)
                 style = pack[style_idx].numpy().astype(np.float32)
                 
-                # Prepare ONNX inputs
+                # prepare onnx inputs
                 onnx_inputs = {
                     'input_ids': np.array([input_ids], dtype=np.int64),
                     'style': style,
                     'speed': np.array([self.speed], dtype=np.float32)
                 }
                 
-                # Run ONNX inference
+                # run onnx inference
                 audio = self.ort_session.run(['waveform'], onnx_inputs)[0]
-                audio = audio.flatten() # Ensure 1D
+                audio = audio.flatten() # ensure 1d
                 
                 with self._audio_lock:
                     self._audio.append(audio.astype('float32'))
         else:
-            # Original PyTorch inference
+            # original pytorch inference
             for _, _, audio in self.pipeline(text, voice=self.voice, speed=self.speed):
                 if audio is not None:
                     audio_np = audio.numpy() if hasattr(audio, 'numpy') else np.array(audio)
-                    audio_np = audio_np.flatten() # Ensure 1D
+                    audio_np = audio_np.flatten() # ensure 1d
                     with self._audio_lock:
                         self._audio.append(audio_np.astype('float32'))
 
 
-    def feed_queue(self, word_queue: queue.Queue, sentinel=None):
+    def feed_queue(self, word_queue: queue.Queue, sentinel: Any = None) -> None:
+        """
+        feed words from a queue into the synthesis engine
+
+        args:
+            word_queue (queue.Queue): queue containing words to synthesize
+            sentinel (Any): optional value to signal the end of the queue
+
+        returns:
+            None
+        """
         buffer = []
         self._synth_done.clear()
 
@@ -200,13 +250,19 @@ class KokoroStreamer:
 
         threading.Thread(target=synth_thread, daemon=True).start()
 
-    def wait_until_done(self):
+    def wait_until_done(self) -> None:
+        """
+        wait until all audio has been synthesized and played
+        """
         self._synth_done.wait()
         while self._audio:
             sd.sleep(50)
         sd.sleep(200)
 
-    def stop(self):
+    def stop(self) -> None:
+        """
+        stop the audio stream
+        """
         if self.stream:
             self.stream.stop()
             self.stream.close()
