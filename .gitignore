@@ -1,0 +1,5 @@
+V1/voice/__pycache__
+container
+V1/voice/tts/kokoro_model/model_fp16.onnx
+V1/voice/tts/__pycache__
+

@@ -1,0 +1,10 @@
+numpy
+moonshine-voice
+openai
+torch
+sounddevice
+aec-audio-processing
+orjson
+onnxruntime
+kokoro
+huggingface-hub

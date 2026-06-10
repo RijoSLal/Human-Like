@@ -1,0 +1,7 @@
+V1 was focusing on embedded systems, the goal was to create a robot conversation system. 
+V2 will be focusing on advanced human-level conversation, where besides having seamless STT, TTS, LLM with VAD and acoustic echo cancellation like in V1, 
+V2 will be focusing on an AI conversation system via call or web, multi-user session based rather than one-to-one like V1. 
+You don't need AEC because WebRTC has built-in AEC, or WebSocket will have negligible issues with acoustic echo (microphone picking up what the speaker played). 
+V2 will also contain GMM + wav2vec clustering based emotion and gender recognition in real time, 
+with voice based call endings and "helloing" if the user speaks something and waits too long, etc, making V2 as close to human calls as possible. 
+The main challenge I am undertaking is that V2 should be fully open source, no APIs allowed, and everything should fit under 4GB VRAM
